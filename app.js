@@ -8,27 +8,136 @@ const state = {
     dragData: null,
 }
 
+class CanvasImage {
+    name
+    data
+    element
+    selected
+    context
+    constructor(element, name, data, context) {
+        this.element = element
+        this.name = name
+        this.selected = false
+        this.context = context
+        this.data = {}
+
+        this.setData({
+            width: element.width,
+            height: element.height,
+            ...data,
+        })
+    }
+
+    setData(data) {
+        this.data = { ...this.data, ...data }
+        this.updatePercents()
+    }
+    updatePercents() {
+        const { x: xMax, y: yMax } = this.max()
+
+        const xPercent = this.data.x / xMax
+        const yPercent = this.data.y / yMax
+
+        this.data.xPercent = xPercent
+        this.data.yPercent = yPercent
+    }
+    max() {
+        const x = Math.max(0, this.context.canvas.width - this.data.width)
+        const y = Math.max(0, this.context.canvas.height - this.data.height)
+
+        return {
+            x,
+            y,
+        }
+    }
+    select() {
+        this.data.selected = true
+    }
+    unselect() {
+        this.data.selected = false
+    }
+    draw() {
+        const imageRect = new Path2D()
+        imageRect.rect(0, 0, this.data.width, this.data.height)
+        this.path = imageRect
+        state.canvasContext.drawImage(
+            this.element,
+            this.data.x,
+            this.data.y,
+            this.data.width,
+            this.data.height
+        )
+        if (this.data.selected) {
+            this.drawStroke()
+        }
+    }
+
+    drawStroke() {
+        const { x, y, width, height } = this.data
+
+        state.canvasContext.strokeStyle = "green"
+        state.canvasContext.lineWidth = 2
+
+        state.canvasContext.beginPath()
+        state.canvasContext.rect(x, y, width, height)
+        state.canvasContext.stroke()
+        state.canvasContext.closePath()
+    }
+    isAtCoords({ x, y }) {
+        const pos = this.getPosition()
+        if (pos.start.x <= x && pos.end.x >= x && pos.start.y <= y && pos.end.y >= y) {
+            return true
+        }
+        return false
+    }
+    getPosition() {
+        const start = {
+            x: this.data.x,
+            y: this.data.y,
+        }
+        const end = {
+            x: start.x + this.data.width,
+            y: start.y + this.data.height,
+        }
+        return { start, end }
+    }
+    moveRelative(moveX, moveY) {
+        const { x: maxX, y: maxY } = this.max()
+
+        const x = Math.max(0, Math.min(maxX, this.data.x + moveX))
+        const y = Math.max(0, Math.min(maxY, this.data.y + moveY))
+
+        this.setData({ x, y })
+    }
+    adjustByPercent() {
+        const { x: maxX, y: maxY } = this.max()
+
+        const x = Math.max(0, Math.min(maxX, maxX * this.data.xPercent))
+        const y = Math.max(0, Math.min(maxY, maxY * this.data.yPercent))
+
+        this.setData({ x, y })
+    }
+}
 async function loadImages(imageUrls) {
     const images = []
     for (let i = 0; i < imgUrls.length; i++) {
         try {
-            const element = await loadImage(imageUrls[i])
-            images.push({
+            const url = imageUrls[i]
+            const element = await loadImage(url)
+            const img = new CanvasImage(
                 element,
-                data: {
+                url.split("/").slice(-1)[0],
+                {
                     x: 0,
                     y: 0,
-                    xPercent: 0,
-                    yPercent: 0,
-                    width: element.width,
-                    height: element.height,
                     i,
-                    selected: false,
                 },
-                name: imageUrls[i].split("/").slice(-1)[0],
-            })
+                state
+            )
+
+            images.push(img)
         } catch (err) {
-            console.error(err.message)
+            console.error(err.message, err)
         }
     }
     return images
@@ -45,27 +154,16 @@ function loadImage(src) {
     })
 }
 
-function render() {
+function clearCanvas() {
     state.canvasContext.clearRect(0, 0, state.canvas.width, state.canvas.height)
+}
+function render() {
+    clearCanvas()
     drawImages()
 }
 
 function drawImages() {
-    state.images.forEach((image) => {
-        const imageRect = new Path2D()
-        imageRect.rect(0, 0, image.data.width, image.data.height)
-        image.path = imageRect
-        state.canvasContext.drawImage(
-            image.element,
-            image.data.x,
-            image.data.y,
-            image.data.width,
-            image.data.height
-        )
-        if (image.data.selected) {
-            addImageStroke(image)
-        }
-    })
+    state.images.forEach((image) => image.draw())
 }
 
 function adjustCanvasSize() {
@@ -74,38 +172,22 @@ function adjustCanvasSize() {
     state.canvas.height = Math.floor((innerWidth / 16) * 9)
 }
 
-function selectImage(i) {
-    const images = [...state.images].map((img) => {
-        if (img.data.i == i) {
-            img.data.selected = true
-        } else {
-            img.data.selected = false
+function selectImage(image) {
+    state.images.forEach((i) => {
+        if (image != i) {
+            i.unselect()
         }
-
-        return img
     })
-
-    state.images = images
+    image.select()
 
     render()
 }
 
-function addImageStroke(image) {
-    const { x, y, width, height } = image.data
-
-    state.canvasContext.strokeStyle = "green"
-    state.canvasContext.lineWidth = 2
-
-    state.canvasContext.beginPath()
-    state.canvasContext.rect(x, y, width, height)
-    state.canvasContext.stroke()
-    state.canvasContext.closePath()
-}
 function startDrag(e) {
     state.dragging = true
     const image = findImageByPosition(e)
     if (image) {
-        selectImage(image.data.i)
+        selectImage(image)
         state.dragData = {
             x: e.x,
             y: e.y,
@@ -123,42 +205,22 @@ function endDrag(e) {
 }
 function unselectAll() {
     let hadSelected = false
-    const images = [...state.images].map((img) => {
+    state.images.forEach((img) => {
         if (img.data.selected) {
             hadSelected = true
+            img.unselect()
         }
-        img.data.selected = false
-        return img
     })
     if (hadSelected) {
-        state.images = images
         render()
     }
 }
-function getImagePosition(image) {
-    const start = {
-        x: image.data.x,
-        y: image.data.y,
-    }
-    const end = {
-        x: start.x + image.data.width,
-        y: start.y + image.data.height,
-    }
-    return { start, end }
-}
-function imageIsAtCoords(image, { x, y }) {
-    const pos = getImagePosition(image)
-    if (pos.start.x <= x && pos.end.x >= x && pos.start.y <= y && pos.end.y >= y) {
-        return true
-    }
-    return false
-}
+
 function findImageByPosition(e) {
-    const images = [...state.images].reverse()
     let found
-    for (var i = 0; i < images.length; i++) {
-        const image = images[i]
-        if (imageIsAtCoords(image, e)) {
+    for (var i = state.images.length - 1; i > -1; i--) {
+        const image = state.images[i]
+        if (image.isAtCoords(e)) {
             found = image
             break
         }
@@ -169,42 +231,22 @@ function findImageByPosition(e) {
 
 function moveSelectedImage(e) {
     const data = state.dragData
+
     const moveX = e.x - data.x
     const moveY = e.y - data.y
 
-    const image = state.images[data.image.data.i]
-
-    const maxX = state.canvas.width - image.data.width
-    const maxY = state.canvas.height - image.data.height
-
-    const toX = Math.max(0, Math.min(maxX, image.data.x + moveX))
-    const toY = Math.max(0, Math.min(maxY, image.data.y + moveY))
+    data.image.moveRelative(moveX, moveY)
 
     state.dragData.x = e.x
     state.dragData.y = e.y
 
-    setImageData(image.data.i, { ...image.data, x: toX, y: toY })
     render()
 }
 function adjustImagePositions() {
-    for (var i = 0; i < state.images.length; i++) {
-        const image = state.images[i]
-        const maxX = state.canvas.width - image.data.width
-        const maxY = state.canvas.height - image.data.height
-
-        const toX = Math.max(0, Math.min(maxX, maxX * image.data.xPercent))
-        const toY = Math.max(0, Math.min(maxY, maxY * image.data.yPercent))
-
-        setImageData(i, { ...image.data, x: toX, y: toY })
-    }
+    state.images.forEach((image) => image.adjustByPercent())
 }
-function setImageData(i, data) {
-    const maxX = state.canvas.width - data.width
-    const maxY = state.canvas.height - data.height
-    const xPercent = data.x / maxX
-    const yPercent = data.y / maxY
-
-    state.images[i].data = { ...data, xPercent, yPercent }
+function syncImagePositions() {
+    state.images.forEach((image) => image.updatePercents())
 }
 function setCanvasListeners() {
     state.canvas.addEventListener("mouseup", (e) => {
@@ -238,9 +280,9 @@ function setGlobalListeners() {
     })
 }
 async function setInitialState() {
-    state.images = await loadImages(imgUrls)
     state.canvas = document.getElementById("canvas")
     state.canvasContext = state.canvas.getContext("2d")
+    state.images = await loadImages(imgUrls)
 }
 
 window.addEventListener("load", async () => {
@@ -248,5 +290,6 @@ window.addEventListener("load", async () => {
     setCanvasListeners()
     setGlobalListeners()
     adjustCanvasSize()
+    syncImagePositions()
     render()
 })
