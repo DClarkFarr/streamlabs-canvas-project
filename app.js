@@ -184,12 +184,26 @@ function moveSelectedImage(e) {
     setImageData(image.data.i, { ...image.data, x: toX, y: toY })
     render()
 }
+function adjustImagePositions() {
+    for (var i = 0; i < state.images.length; i++) {
+        const image = state.images[i]
+        const maxX = state.canvas.width - image.data.width
+        const maxY = state.canvas.height - image.data.height
 
+        const toX = Math.max(0, Math.min(maxX, image.data.x))
+        const toY = Math.max(0, Math.min(maxY, image.data.y))
+
+        if (maxX != toX || maxY != toY) {
+            setImageData(i, { ...image.data, x: toX, y: toY })
+        }
+    }
+}
 function setImageData(i, data) {
     state.images[i].data = data
 }
 function setCanvasListeners() {
     state.canvas.addEventListener("mouseup", (e) => {
+        e.stopPropagation()
         endDrag(e)
     })
     state.canvas.addEventListener("mousedown", (e) => {
@@ -201,7 +215,23 @@ function setCanvasListeners() {
         }
     })
 }
+function setGlobalListeners() {
+    let windowResizeTimeout
+    window.addEventListener("resize", () => {
+        clearTimeout(windowResizeTimeout)
+        windowResizeTimeout = setTimeout(() => {
+            adjustCanvasSize()
+            adjustImagePositions()
+            render()
+        }, 100)
+    })
 
+    document.getElementById("canvas-wrap").addEventListener("mouseup", () => {
+        if (state.dragging) {
+            endDrag()
+        }
+    })
+}
 async function setInitialState() {
     state.images = await loadImages(imgUrls)
     state.canvas = document.getElementById("canvas")
@@ -211,15 +241,7 @@ async function setInitialState() {
 window.addEventListener("load", async () => {
     await setInitialState()
     setCanvasListeners()
+    setGlobalListeners()
     adjustCanvasSize()
     render()
-})
-
-let windowResizeTimeout
-window.addEventListener("resize", () => {
-    clearTimeout(windowResizeTimeout)
-    windowResizeTimeout = setTimeout(() => {
-        adjustCanvasSize()
-        render()
-    }, 100)
 })
