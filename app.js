@@ -18,6 +18,8 @@ async function loadImages(imageUrls) {
                 data: {
                     x: 0,
                     y: 0,
+                    xPercent: 0,
+                    yPercent: 0,
                     width: element.width,
                     height: element.height,
                     i,
@@ -190,16 +192,19 @@ function adjustImagePositions() {
         const maxX = state.canvas.width - image.data.width
         const maxY = state.canvas.height - image.data.height
 
-        const toX = Math.max(0, Math.min(maxX, image.data.x))
-        const toY = Math.max(0, Math.min(maxY, image.data.y))
+        const toX = Math.max(0, Math.min(maxX, maxX * image.data.xPercent))
+        const toY = Math.max(0, Math.min(maxY, maxY * image.data.yPercent))
 
-        if (maxX != toX || maxY != toY) {
-            setImageData(i, { ...image.data, x: toX, y: toY })
-        }
+        setImageData(i, { ...image.data, x: toX, y: toY })
     }
 }
 function setImageData(i, data) {
-    state.images[i].data = data
+    const maxX = state.canvas.width - data.width
+    const maxY = state.canvas.height - data.height
+    const xPercent = data.x / maxX
+    const yPercent = data.y / maxY
+
+    state.images[i].data = { ...data, xPercent, yPercent }
 }
 function setCanvasListeners() {
     state.canvas.addEventListener("mouseup", (e) => {
